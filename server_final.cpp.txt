@@ -1,0 +1,145 @@
+#include <iostream>
+#include <unistd.h>
+#include <cstring>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <map>
+
+const int PORT = 12345;
+const int BUFFER_SIZE = 1024;
+
+// Structure to represent a device
+struct Device {
+    std::string name;
+    bool state;
+    Device() : name(""), state(false) {}
+    Device(const std::string& n) : name(n), state(false) {}
+};
+
+void handleClient(int clientSocket, std::map<std::string, Device>& devices) {
+    char buffer[BUFFER_SIZE];
+    int bytesRead;
+    auto itr=devices.begin();
+    	std::cout<<"\nDevices available  :\n";
+		while(itr!=devices.end())
+			{
+			std::cout<<itr->first<<"\t";
+			itr++;
+			}
+			std::cout<<"\n\n";
+
+    while (true) {
+        bytesRead = recv(clientSocket, buffer, BUFFER_SIZE, 0);
+        if (bytesRead <= 0) {
+            std::cerr << "Connection closed by client." << std::endl;
+            break;
+        }
+	std::string response;
+        buffer[bytesRead] = '\0';
+        std::cout << "\nReceived command: " << buffer << std::endl;
+
+        // Parse the command
+        std::string command(buffer);
+
+        // Split the command into device and action
+        size_t pos = command.find(':');
+        if (pos != std::string::npos) {
+            std::string deviceName = command.substr(0, pos);
+            std::string action = command.substr(pos + 1); 
+            // Find the device in the map
+            auto it = devices.find(deviceName);	
+            if (it != devices.end()) {	
+                // Perform actions based on the received command (simulated action)
+                if (action == "turn_on") {
+                    std::cout << "Turning on device " << deviceName << "..." << std::endl;
+			response = deviceName + " has turned ON";
+			//std::cout<<"Response size : "<<response.size()<<std::endl;
+			if(send(clientSocket, response.c_str(),response.size(),0)==-1)
+				std::cerr<<"\nError sending response\n";
+                    it->second.state = true;
+                } else if (action == "turn_off") {
+                    std::cout << "Turning off device " << deviceName << "..." << std::endl;
+			response = deviceName + " has turned OFF";
+			send(clientSocket, response.c_str(), response.size(),0);
+                    it->second.state = false;
+                } else {
+                    std::cout << "Unknown action for device " << deviceName << "." << std::endl;
+                 response = "Unknown action for device: " + deviceName;
+			send(clientSocket, response.c_str(), response.size(),0);
+                    it->second.state = false;
+                }
+            } else {
+                std::cout << "Device not found: " << deviceName << std::endl;
+			response = deviceName + " not found";
+			send(clientSocket, response.c_str(), response.size(),0);
+            }
+        } else {
+            std::cout << "Invalid command format." << std::endl;
+           response = "Invalid command format";
+			send(clientSocket, response.c_str(), response.size(),0);
+}
+}
+close(clientSocket);
+}
+
+int main() {
+    int serverSocket, clientSocket;
+    struct sockaddr_in serverAddr, clientAddr;
+    socklen_t clientAddrLen = sizeof(clientAddr);
+
+    // Create socket
+    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverSocket == -1) {
+        std::cerr << "Error creating socket." << std::endl;
+        return -1;
+    }
+
+    // Configure server address
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(PORT);
+
+    // Bind socket
+    if (bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
+        std::cerr << "Error binding socket." << std::endl;
+        close(serverSocket);
+        return -1;
+    }
+
+    // Listen for incoming connections
+    if (listen(serverSocket, 5) == -1) {
+        std::cerr << "Error listening for connections." << std::endl;
+        close(serverSocket);
+        return -1;
+    }
+
+    std::cout << "Server listening on port " << PORT << "..." << std::endl;
+
+    // Map to store devices and their states
+    std::map<std::string, Device> devices;
+    devices["light"] = Device("light");
+    devices["fan"] = Device("fan");
+    devices["refrigerator"] = Device("refrigerator");
+    devices["AC"] = Device("AC");
+    devices["TV"] = Device("TV");
+    
+    while (true) {
+        // Accept incoming connection
+        clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientAddrLen);
+        if (clientSocket == -1) {
+            std::cerr << "Error accepting connection." << std::endl;
+            continue;
+        }
+
+        std::cout << "Client connected." << std::endl;
+
+        // Handle client communication in a separate thread or process
+        handleClient(clientSocket, devices);
+    }
+
+    // Close server socket
+    close(serverSocket);
+
+    return 0;
+}
